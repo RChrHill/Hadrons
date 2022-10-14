@@ -205,8 +205,8 @@ namespace EigenPackIo
     template <typename T, typename TIo = T>
     static void writePack(const std::string filename, std::vector<T> &evec, 
                           std::vector<RealD> &eval, PackRecord &record, 
-                          const unsigned int size, bool multiFile, 
-                          GridBase *gridIo = nullptr)
+                          const unsigned int ki, const unsigned int kf,
+                          bool multiFile, GridBase *gridIo = nullptr)
     {
         GridBase             *grid = evec[0].Grid();
         std::unique_ptr<TIo> ioBuf{nullptr}; 
@@ -227,14 +227,14 @@ namespace EigenPackIo
         {
             std::string fullFilename;
 
-            for(int k = 0; k < size; ++k) 
+            for(int k = ki; k < kf; ++k) 
             {
                 fullFilename = filename + "/v" + std::to_string(k) + ".bin";
 
                 makeFileDir(fullFilename, grid);
                 binWriter.open(fullFilename);
                 writeHeader(binWriter, record);
-                writeElement(binWriter, evec[k], eval[k], k, ioBuf.get(), testBuf.get());
+                writeElement(binWriter, evec[k - ki], eval[k - ki], k, ioBuf.get(), testBuf.get());
                 binWriter.close();
             }
         }
@@ -243,12 +243,21 @@ namespace EigenPackIo
             makeFileDir(filename, grid);
             binWriter.open(filename);
             writeHeader(binWriter, record);
-            for(int k = 0; k < size; ++k) 
+            for(int k = ki; k < kf; ++k) 
             {
-                writeElement(binWriter, evec[k], eval[k], k, ioBuf.get(), testBuf.get());
+                writeElement(binWriter, evec[k - ki], eval[k - ki], k, ioBuf.get(), testBuf.get());
             }
             binWriter.close();
         }
+    }
+
+    template <typename T, typename TIo = T>
+    static void writePack(const std::string filename, std::vector<T> &evec, 
+                          std::vector<RealD> &eval, PackRecord &record, 
+                          const unsigned int size, bool multiFile, 
+                          GridBase *gridIo = nullptr)
+    {
+        writePack<T, TIo>(filename, evec, eval, record, 0, size, multiFile, gridIo);
     }
 }
 
@@ -324,6 +333,14 @@ public:
         EigenPackIo::writePack<F, FIo>(evecFilename(fileStem, traj, multiFile), 
                                        this->evec, this->eval, this->record, 
                                        this->evec.size(), multiFile, gridIo_);
+    }
+
+    virtual void write(const std::string fileStem, const bool multiFile, 
+                       const unsigned int ki, const unsigned int kf, const int traj = -1)
+    {
+        EigenPackIo::writePack<F, FIo>(evecFilename(fileStem, traj, multiFile), 
+                                       this->evec, this->eval, this->record, 
+                                       ki, kf, multiFile, gridIo_);
     }
 
     template <typename ColourMatrixField>
@@ -434,6 +451,12 @@ public:
     {
         EigenPack<FineF, FineFIo>::write(fileStem + "_fine", multiFile, traj);
     }
+    
+    void writeFine(const std::string fileStem, const bool multiFile, 
+                   const unsigned int ki, const unsigned int kf, const int traj = -1)
+    {
+        EigenPack<FineF, FineFIo>::write(fileStem + "_fine", multiFile, ki, kf, traj);
+    }
 
     void writeCoarse(const std::string fileStem, const bool multiFile, const int traj = -1)
     {
@@ -441,11 +464,26 @@ public:
                                                    evecCoarse, evalCoarse, this->record, 
                                                    evecCoarse.size(), multiFile, gridCoarseIo_);
     }
+
+    void writeCoarse(const std::string fileStem, const bool multiFile, 
+                     const unsigned int ki, const unsigned int kf, const int traj = -1)
+    {
+        EigenPackIo::writePack<CoarseF, CoarseFIo>(this->evecFilename(fileStem + "_coarse", traj, multiFile), 
+                                                   evecCoarse, evalCoarse, this->record, 
+                                                   ki, kf, multiFile, gridCoarseIo_);
+    }
     
     virtual void write(const std::string fileStem, const bool multiFile, const int traj = -1)
     {
         writeFine(fileStem, multiFile, traj);
         writeCoarse(fileStem, multiFile, traj);
+    }
+    
+    virtual void write(const std::string fileStem, const bool multiFile, 
+                       const unsigned int ki, const unsigned int kf, const int traj = -1)
+    {
+        writeFine(fileStem, multiFile, ki, kf, traj);
+        writeCoarse(fileStem, multiFile, ki, kf, traj);
     }
 private:
     GridBase *gridCoarseIo_;
