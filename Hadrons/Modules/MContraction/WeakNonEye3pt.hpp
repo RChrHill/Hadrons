@@ -128,7 +128,7 @@ std::vector<std::string> TWeakNonEye3pt<FImpl>::getInput(void)
 template <typename FImpl>
 std::vector<std::string> TWeakNonEye3pt<FImpl>::getOutput(void)
 {
-    std::vector<std::string> out = {getName()};
+    std::vector<std::string> out = {envResultName()};
     
     return out;
 }
@@ -146,7 +146,7 @@ template <typename FImpl>
 void TWeakNonEye3pt<FImpl>::setup(void)
 {
     envTmpLat(ComplexField, "corr");
-    envCreate(HadronsSerializable, getName(), 1, 0);
+    envCreateResult();
 }
 
 // execution ///////////////////////////////////////////////////////////////////
@@ -161,14 +161,15 @@ void TWeakNonEye3pt<FImpl>::execute(void)
     LOG(Message) << "qr  : " << par().qRight << std::endl;
     LOG(Message) << "qbr : " << par().qBarRight << std::endl;
 
-    std::vector<Result> result;
-    Result              r;
-    auto                &ql  = envGet(PropagatorField, par().qLeft);
-    auto                &qbl = envGet(PropagatorField, par().qBarLeft);
-    auto                &qr  = envGet(PropagatorField, par().qRight);
-    auto                &qbr = envGet(PropagatorField, par().qBarRight);
-    Gamma               gIn(par().gammaIn), gOut(par().gammaOut);
-    Gamma               g5(Gamma::Algebra::Gamma5);
+    Result r;
+    auto   &ql     = envGet(PropagatorField, par().qLeft);
+    auto   &qbl    = envGet(PropagatorField, par().qBarLeft);
+    auto   &qr     = envGet(PropagatorField, par().qRight);
+    auto   &qbr    = envGet(PropagatorField, par().qBarRight);
+    auto   &result = envInitResult(std::vector<Result>);
+    
+    Gamma  gIn(par().gammaIn), gOut(par().gammaOut);
+    Gamma  g5(Gamma::Algebra::Gamma5);
 
     envGetTmp(ComplexField, corr);
     r.info.in  = par().gammaIn;
@@ -200,8 +201,6 @@ void TWeakNonEye3pt<FImpl>::execute(void)
         result.push_back(r);
     }
     saveResult(par().output, "weakNonEye3pt", result);
-    auto &out = envGet(HadronsSerializable, getName());
-    out = result;
 }
 
 END_MODULE_NAMESPACE

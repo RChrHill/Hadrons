@@ -80,13 +80,19 @@ TCorrelatorGroup<Impl>::TCorrelatorGroup(const std::string name)
 template<typename Impl>
 std::vector<std::string> TCorrelatorGroup<Impl>::getInput(void)
 {
-    return par().contractions;
+    // Convert a set of module names into the strings used to store their
+    // HadronsSerializable objects
+    std::vector<std::string> inputs;
+    for (const auto& name : par().contractions)
+        inputs.push_back(envModuleResultName(name));
+    return inputs;
 }
 
 template<typename Impl>
 std::vector<std::string> TCorrelatorGroup<Impl>::getOutput(void)
 {
-    std::vector<std::string> output = {getName()};
+    // Output the module result under a standardised identifier
+    std::vector<std::string> output = {envResultName()};
     
     return output;
 }
@@ -103,7 +109,7 @@ std::vector<std::string> TCorrelatorGroup<Impl>::getOutputFiles(void)
 template<typename Impl>
 void TCorrelatorGroup<Impl>::setup(void)
 {
-    envCreate(HadronsSerializable, getName(), 1, 0);
+    envCreateResult();
 }
 
 // execution ///////////////////////////////////////////////////////////////////
@@ -111,12 +117,11 @@ template<typename Impl>
 void TCorrelatorGroup<Impl>::execute(void)
 {
     auto &contractionList = par().contractions;
-    auto &out             = envGet(HadronsSerializable, getName());
-    auto &result          = out.template hold<HadronsSerializableGroup>(contractionList.size());
+    auto &result          = envInitResultGroup();
 
     for (const auto &contractionModuleName : contractionList)
     {
-        auto &moduleResults = envGet(HadronsSerializable, contractionModuleName);
+        const auto& moduleResults = envGetModuleResult(contractionModuleName);
         result.append(contractionModuleName, moduleResults);
     }
 }

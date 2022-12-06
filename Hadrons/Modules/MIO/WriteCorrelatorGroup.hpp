@@ -81,7 +81,12 @@ TWriteCorrelatorGroup<FImpl1, FImpl2>::TWriteCorrelatorGroup(const std::string n
 template <typename FImpl1, typename FImpl2>
 std::vector<std::string> TWriteCorrelatorGroup<FImpl1, FImpl2>::getInput(void)
 {
-    return par().contractions;
+    // Convert a set of module names into the strings used to store their
+    // HadronsSerializable objects
+    std::vector<std::string> inputs;
+    for (const auto& name : par().contractions)
+        inputs.push_back(envModuleResultName(name));
+    return inputs;
 }
 
 template <typename FImpl1, typename FImpl2>
@@ -111,12 +116,12 @@ void TWriteCorrelatorGroup<FImpl1, FImpl2>::setup(void)
 template <typename FImpl1, typename FImpl2>
 void TWriteCorrelatorGroup<FImpl1, FImpl2>::execute(void)
 {
-    auto &contractionList = par().contractions; // Switch to std::vector with <elem></elem> tags
+    auto &contractionList = par().contractions;
 
     HadronsSerializableGroup result(contractionList.size());
     for (const auto &contractionModuleName : contractionList)
     {
-        auto &moduleResults = envGet(HadronsSerializable, contractionModuleName);
+        const auto& moduleResults = envGetModuleResult(contractionModuleName);
         result.append(contractionModuleName, moduleResults);
     }
 

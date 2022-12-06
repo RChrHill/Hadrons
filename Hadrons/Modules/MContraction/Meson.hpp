@@ -33,7 +33,6 @@
 #include <Hadrons/Global.hpp>
 #include <Hadrons/Module.hpp>
 #include <Hadrons/ModuleFactory.hpp>
-#include <Hadrons/Serialization.hpp>
 
 BEGIN_HADRONS_NAMESPACE
 
@@ -153,7 +152,7 @@ std::vector<std::string> TMeson<FImpl1, FImpl2>::getInput(void)
 template <typename FImpl1, typename FImpl2>
 std::vector<std::string> TMeson<FImpl1, FImpl2>::getOutput(void)
 {
-    std::vector<std::string> output = {getName()};
+    std::vector<std::string> output = {envResultName()};
     
     return output;
 }
@@ -171,7 +170,7 @@ template <typename FImpl1, typename FImpl2>
 void TMeson<FImpl1, FImpl2>::setup(void)
 {
     envTmpLat(LatticeComplex, "c");
-    envCreate(HadronsSerializable, getName(), 1, 0);
+    envCreateResult();
 }
 
 // execution ///////////////////////////////////////////////////////////////////
@@ -186,10 +185,10 @@ void TMeson<FImpl1, FImpl2>::execute(void)
                  << std::endl;
     
     std::vector<TComplex>  buf;
-    std::vector<Result>    result;
     Gamma                  g5(Gamma::Algebra::Gamma5);
     std::vector<GammaPair> gammaList;
     int                    nt = env().getDim(Tp);
+    auto&              result = envInitResult(std::vector<Result>);
     
     parseGammaString(gammaList);
     result.resize(gammaList.size());
@@ -252,8 +251,6 @@ void TMeson<FImpl1, FImpl2>::execute(void)
         }
     }
     saveResult(par().output, "meson", result);
-    auto &out = envGet(HadronsSerializable, getName());
-    out = result;
 }
 
 END_MODULE_NAMESPACE
