@@ -30,6 +30,7 @@
 
 #include <Hadrons/Global.hpp>
 #include <Hadrons/Database.hpp>
+#include <Hadrons/Serialization.hpp>
 #include <Hadrons/TimerArray.hpp>
 #include <Hadrons/VirtualMachine.hpp>
 
@@ -104,6 +105,21 @@ env().template getSliceGrid<typename latticeType::vector_type>(orthDim)
 #define envGetDerived(base, type, name)\
 *env().template getDerivedObject<base, type>(name)
 
+#define envInitResult(type)\
+(envGet(HadronsSerializable, envResultName())).template hold<type>()
+
+#define envInitResultGroup()\
+envInitResult(HadronsSerializableGroup)
+
+#define envResultName()\
+envModuleResultName(getName())
+
+#define envModuleResultName(module_name)\
+HadronsSerializable::getMangledID(module_name)
+
+#define envGetModuleResult(module_name)\
+envGet(HadronsSerializable, envModuleResultName(module_name))
+
 #define envGetTmp(type, var)\
 type &var = *env().template getObject<type>(getName() + "_tmp_" + #var)
 
@@ -118,6 +134,9 @@ env().template createObject<type>(name, Environment::Storage::standard, Ls, __VA
 
 #define envCreateDerived(base, type, name, Ls, ...)\
 env().template createDerivedObject<base, type>(name, Environment::Storage::standard, Ls, __VA_ARGS__)
+
+#define envCreateResult()\
+(envCreate(HadronsSerializable, HadronsSerializable::getMangledID(getName()), 1, 0))
 
 #define envCreateLat4(type, name)\
 envCreate(type, name, 1, envGetGrid(type))
