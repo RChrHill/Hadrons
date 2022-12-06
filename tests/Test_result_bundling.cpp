@@ -109,7 +109,7 @@ int main(int argc, char *argv[])
     mesPar2.q2      = "Qpt_s";
     mesPar2.gammas  = "(Gamma5 GammaY) (Gamma5 GammaZ)";
     mesPar2.sink    = "sink";
-    mesPar2.output  = "";
+    mesPar2.output  = "resultbundle_test/original_output_2pt";
     application.createModule<MContraction::Meson>("meson_pt_ss_5Y",
                                                     mesPar2);
 
