@@ -79,6 +79,12 @@ public:
     template<typename T>
     GenericSerializable(const T& obj) { this->hold<T>(obj); }
 
+    // Copy constructors
+    GenericSerializable(const GenericSerializable& other)
+    {
+        this->object = other.object;
+    }
+
     // Copy assignment constructors
     template<typename T>
     typename std::enable_if<!std::is_base_of<GenericSerializable, T>::value, GenericSerializable&>::type
@@ -127,6 +133,14 @@ public:
         output.object->write(wr, s);
     }
 
+    // ############### //
+    // HADRONS HELPERS //
+    // ############### //
+    // Used to convert Module names -> Result object names
+    static const std::string getMangledID(const std::string& module_name) noexcept
+    {
+        return module_name + "__MODULE_RESULT__";
+    }
 private:
     // ############### //
     // PRIVATE MEMBERS //
