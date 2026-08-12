@@ -30,6 +30,8 @@
 #include <Hadrons/Global.hpp>
 #include <Hadrons/Module.hpp>
 #include <Hadrons/ModuleFactory.hpp>
+#include <Hadrons/FieldIo.hpp> 
+#include <Hadrons/EmField.hpp>
 
 BEGIN_HADRONS_NAMESPACE
 
@@ -42,10 +44,12 @@ class LoadCheckpointPar: Serializable
 {
 public:
     GRID_SERIALIZABLE_CLASS_MEMBERS(LoadCheckpointPar,
-                                    unsigned int, i);
+                                    std::string, name,
+                                    unsigned int, Ls,
+                                    std::string, fileStem);
 };
 
-template <typename FImpl>
+template <typename Field>
 class TLoadCheckpoint: public Module<LoadCheckpointPar>
 {
 public:
@@ -62,48 +66,118 @@ public:
     virtual void execute(void);
 };
 
-MODULE_REGISTER_TMP(LoadCheckpoint, TLoadCheckpoint<FIMPL>, MIO);
+MODULE_REGISTER_TMP(LoadPropagatorCheckpoint, TLoadCheckpoint<FIMPL::PropagatorField>, MIO);
 
 /******************************************************************************
  *                 TLoadCheckpoint implementation                             *
  ******************************************************************************/
 // constructor /////////////////////////////////////////////////////////////////
-template <typename FImpl>
-TLoadCheckpoint<FImpl>::TLoadCheckpoint(const std::string name)
+template <typename Field>
+TLoadCheckpoint<Field>::TLoadCheckpoint(const std::string name)
 : Module<LoadCheckpointPar>(name)
 {}
 
 // dependencies/products ///////////////////////////////////////////////////////
-template <typename FImpl>
-std::vector<std::string> TLoadCheckpoint<FImpl>::getInput(void)
+template <typename Field>
+std::vector<std::string> TLoadCheckpoint<Field>::getInput(void)
 {
-    std::vector<std::string> in;
-    
-    return in;
+    return {};
 }
 
-template <typename FImpl>
-std::vector<std::string> TLoadCheckpoint<FImpl>::getOutput(void)
+template <typename Field>
+std::vector<std::string> TLoadCheckpoint<Field>::getOutput(void)
 {
-    std::vector<std::string> out = {getName()};
-    
-    return out;
+    return {par().name};
 }
 
 // setup ///////////////////////////////////////////////////////////////////////
-template <typename FImpl>
-void TLoadCheckpoint<FImpl>::setup(void)
+template <typename Field>
+void TLoadCheckpoint<Field>::setup(void)
 {
-    
+    if (par().Ls > 1)
+    {
+        envCreateLat(Field, par().name, par().Ls);
+        LOG(Message) << "Crated 5d fields " << par().name << std::endl;
+    }
+    else
+    {
+        envCreateLat(Field, par().name);
+        LOG(Message) << "Crated 4d fields " << par().name << std::endl;
+    }
 }
 
 // execution ///////////////////////////////////////////////////////////////////
-template <typename FImpl>
-void TLoadCheckpoint<FImpl>::execute(void)
+template <typename Field>
+void TLoadCheckpoint<Field>::execute(void)
 {
-    
-}
+    auto grid = env().getGrid();
+    const std::string rankStr = std::to_string(grid->ThisRank());
+    const std::string filename = resultFilename(par().fileStem + "." + rankStr, "bin");
+    size_t size, sizec;
+    uint32_t crcRead, crcData;
+    GridStopWatch ioWatch, crcWatch;
 
+    // Open checkpoint
+    std::ifstream file(filename, std::ios::in | std::ios::binary);
+    if (!file.is_open())
+    {
+        HADRONS_ERROR(Definition, "Could not open file: " + filename);
+    }
+
+    // Local lattice data size
+    size = grid->lSites()*sizeof(typename Field::scalar_object);
+    sizec = size/sizeof(char);
+
+    // Allocate field in Hadrons Environment
+    auto &vec = envGet(Field, par().name);
+
+    // Read lattice data
+    crcWatch.Start();
+    file.read(reinterpret_cast<char *>(&crcRead), sizeof(uint32_t)/sizeof(char));
+    if (!file)
+    {
+        HADRONS_ERROR(Definition, "Failed to read CRC from checkpoint: " + filename);
+    }
+    crcWatch.Stop();
+
+    {
+        autoView(vec_v, vec, CpuWrite);
+        ioWatch.Start();
+        file.read(reinterpret_cast<char *>(vec_v.cpu_ptr), sizec);
+        if (!file)
+        {
+            HADRONS_ERROR(Definition, "Failed to read lattice data from checkpoint: " + filename);
+        }
+        ioWatch.Stop();
+    }
+    file.close();
+
+    // Calculate CRC
+    {
+        autoView(vec_v, vec, CpuRead);
+        crcWatch.Start();
+        crcData = GridChecksum::crc32(vec_v.cpu_ptr, size);
+        crcWatch.Stop();
+    }
+    
+    // Validate CRC
+    LOG(Message) << "LoadCheckpoint: stored CRC32 " << std::hex << crcRead << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: calculated CRC32 " << std::hex << crcData << std::dec << std::endl;
+    if (crcRead != crcData)
+    {
+        HADRONS_ERROR(Definition, "Checkpoint CRC32 mismatch for " + filename);
+    }
+
+    // Performance
+    size *= grid->ProcessorCount();
+    auto &p = BinaryIO::lastPerf;
+    p.size = size;
+    p.time = ioWatch.useconds();
+    p.mbytesPerSecond = size/1024.0/1024.0/(ioWatch.useconds()/1.e6);
+    LOG(Message) << "LoadCheckpoint: Read " << p.size << " bytes in " << ioWatch.Elapsed()
+                 << ", " << p.mbytesPerSecond << " MB/s" << std::endl;
+    LOG(Message) << "LoadCheckpoint: checksum overhead " << crcWatch.Elapsed() << std::endl;
+}
 END_MODULE_NAMESPACE
 
 END_HADRONS_NAMESPACE

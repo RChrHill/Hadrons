@@ -30,4 +30,4 @@ using namespace Grid;
 using namespace Hadrons;
 using namespace MIO;
 
-template class HADRONS_NAMESPACE::MIO::TLoadCheckpoint<FIMPL>;
+template class HADRONS_NAMESPACE::MIO::TLoadCheckpoint<FIMPL::PropagatorField>;

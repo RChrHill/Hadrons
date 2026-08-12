@@ -30,6 +30,8 @@
 #include <Hadrons/Global.hpp>
 #include <Hadrons/Module.hpp>
 #include <Hadrons/ModuleFactory.hpp>
+#include <Hadrons/FieldIo.hpp>
+#include <Hadrons/EmField.hpp>
 
 BEGIN_HADRONS_NAMESPACE
 
@@ -42,10 +44,11 @@ class SaveCheckpointPar: Serializable
 {
 public:
     GRID_SERIALIZABLE_CLASS_MEMBERS(SaveCheckpointPar,
-                                    unsigned int, i);
+                                    std::string, name,
+                                    std::string, fileStem);
 };
 
-template <typename FImpl>
+template <typename Field>
 class TSaveCheckpoint: public Module<SaveCheckpointPar>
 {
 public:
@@ -62,48 +65,90 @@ public:
     virtual void execute(void);
 };
 
-MODULE_REGISTER_TMP(SaveCheckpoint, TSaveCheckpoint<FIMPL>, MIO);
+MODULE_REGISTER_TMP(SavePropagatorCheckpoint, TSaveCheckpoint<FIMPL::PropagatorField>, MIO);
 
 /******************************************************************************
  *                 TSaveCheckpoint implementation                             *
  ******************************************************************************/
 // constructor /////////////////////////////////////////////////////////////////
-template <typename FImpl>
-TSaveCheckpoint<FImpl>::TSaveCheckpoint(const std::string name)
+template <typename Field>
+TSaveCheckpoint<Field>::TSaveCheckpoint(const std::string name)
 : Module<SaveCheckpointPar>(name)
 {}
 
 // dependencies/products ///////////////////////////////////////////////////////
-template <typename FImpl>
-std::vector<std::string> TSaveCheckpoint<FImpl>::getInput(void)
+template <typename Field>
+std::vector<std::string> TSaveCheckpoint<Field>::getInput(void)
 {
-    std::vector<std::string> in;
-    
-    return in;
+    return {par().name};
 }
 
-template <typename FImpl>
-std::vector<std::string> TSaveCheckpoint<FImpl>::getOutput(void)
+template <typename Field>
+std::vector<std::string> TSaveCheckpoint<Field>::getOutput(void)
 {
-    std::vector<std::string> out = {getName()};
-    
-    return out;
+    return {};
 }
 
 // setup ///////////////////////////////////////////////////////////////////////
-template <typename FImpl>
-void TSaveCheckpoint<FImpl>::setup(void)
+template <typename Field>
+void TSaveCheckpoint<Field>::setup(void)
 {
-    
+    // if require memory allocations then fill this section
 }
 
 // execution ///////////////////////////////////////////////////////////////////
-template <typename FImpl>
-void TSaveCheckpoint<FImpl>::execute(void)
+template <typename Field>
+void TSaveCheckpoint<Field>::execute(void)
 {
-    
-}
+    auto grid = env().getGrid();
+    const std::string rankStr = std::to_string(grid->ThisRank());
+    const std::string filename = resultFilename(par().fileStem + "." + rankStr, "bin");
+    size_t size, sizec;
+    uint32_t crc;
+    GridStopWatch ioWatch, crcWatch;
 
+    // Open checkpoint
+    std::ofstream file(filename, std::ios::out | std::ios::binary);
+    if (!file.is_open())
+    {
+        HADRONS_ERROR(Definition, "Could not open file: " + filename);
+    }
+
+    // Local lattice data size
+    size = grid->lSites()*sizeof(typename Field::scalar_object);
+    sizec = size/sizeof(char);
+    
+    // Allocate field in Hadrons Environment
+    auto &vec = envGet(Field, par().name);
+
+    // Write lattice data
+    autoView(vec_v, vec, CpuRead);
+    crcWatch.Start();
+    crc = GridChecksum::crc32(vec_v.cpu_ptr, size);
+    file.write(reinterpret_cast<char *>(&crc), sizeof(uint32_t)/sizeof(char));
+    crcWatch.Stop();
+    LOG(Message) << "SaveCheckpoint: Data CRC32 " << std::hex << crc << std::dec << std::endl;
+
+    ioWatch.Start();
+    file.write(reinterpret_cast<char *>(vec_v.cpu_ptr), sizec);
+    file.flush();
+    ioWatch.Stop();
+    if (!file)
+    {
+        HADRONS_ERROR(Definition, "Failed to write lattice data in checkpoint: " + filename);
+    }
+    file.close();
+
+    // Performance
+    size *= grid->ProcessorCount();
+    auto &p = BinaryIO::lastPerf;
+    p.size = size;
+    p.time = ioWatch.useconds();
+    p.mbytesPerSecond = size/1024.0/1024.0/(ioWatch.useconds()/1.e6);
+    LOG(Message) << "SaveCheckpoint: Wrote " << p.size << " bytes in " << ioWatch.Elapsed() 
+                 << ", " << p.mbytesPerSecond << " MB/s" << std::endl;
+    LOG(Message) << "SaveCheckpoint: checksum overhead " << crcWatch.Elapsed() << std::endl;
+}
 END_MODULE_NAMESPACE
 
 END_HADRONS_NAMESPACE
