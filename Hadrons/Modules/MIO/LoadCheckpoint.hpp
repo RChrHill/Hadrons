@@ -97,12 +97,12 @@ void TLoadCheckpoint<Field>::setup(void)
     if (par().Ls > 1)
     {
         envCreateLat(Field, par().name, par().Ls);
-        LOG(Message) << "Crated 5d fields " << par().name << std::endl;
+        LOG(Message) << "Created 5d fields " << par().name << std::endl;
     }
     else
     {
         envCreateLat(Field, par().name);
-        LOG(Message) << "Crated 4d fields " << par().name << std::endl;
+        LOG(Message) << "Created 4d fields " << par().name << std::endl;
     }
 }
 
@@ -186,8 +186,8 @@ void TLoadCheckpoint<Field>::execute(void)
     if (datatype != expDatatype)     { HADRONS_ERROR(Definition, "Invalid checkpoint datatype");   }
     if (localCrc != expLocalCrc)     { HADRONS_ERROR(Definition, "Invalid checkpoint localCrc");   }
     if (globalCrc != expGlobalCrc)   { HADRONS_ERROR(Definition, "Invalid checkpoint globalCrc");  }
-    if (dataOffset != expDataOffset) { HADRONS_ERROR(Definition, "Invalid checkpoint dataoffset"); }
-    if (dataSize != expDataSize)     { HADRONS_ERROR(Definition, "Invalid checkpoint datasize");   }
+    if (dataOffset != expDataOffset) { HADRONS_ERROR(Definition, "Invalid checkpoint dataOffset"); }
+    if (dataSize != expDataSize)     { HADRONS_ERROR(Definition, "Invalid checkpoint dataSize");   }
 
     // Performance
     size *= grid->ProcessorCount();
