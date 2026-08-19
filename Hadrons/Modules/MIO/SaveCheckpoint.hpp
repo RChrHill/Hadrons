@@ -4,7 +4,7 @@
  * Copyright (C) 2015 - 2023
  *
  * Author: Antonin Portelli <antonin.portelli@me.com>
- * Author: Michael Marshall <43034299+mmphys@users.noreply.github.com>
+ * Author: Muhammad Asif <19404936+asifsamiarain@users.noreply.github.com>
  *
  * Hadrons is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -104,13 +104,13 @@ void TSaveCheckpoint<Field>::execute(void)
     const std::string rankStr = std::to_string(grid->ThisRank());
     const std::string filename = resultFilename(par().fileStem + "." + rankStr, "bin");
     size_t size, sizec;
-    uint32_t crc;
     GridStopWatch ioWatch, crcWatch;
 
     // Open checkpoint
     std::ofstream file(filename, std::ios::out | std::ios::binary);
     if (!file.is_open())
     {
+        file.close();
         HADRONS_ERROR(Definition, "Could not open file: " + filename);
     }
 
@@ -123,18 +123,49 @@ void TSaveCheckpoint<Field>::execute(void)
 
     // Write lattice data
     autoView(vec_v, vec, CpuRead);
-    crcWatch.Start();
-    crc = GridChecksum::crc32(vec_v.cpu_ptr, size);
-    file.write(reinterpret_cast<char *>(&crc), sizeof(uint32_t)/sizeof(char));
-    crcWatch.Stop();
-    LOG(Message) << "SaveCheckpoint: Data CRC32 " << std::hex << crc << std::dec << std::endl;
 
+    // Write header
+    crcWatch.Start();
+    uint32_t magic = 'CKPT';
+    uint32_t datatype = 0; // datatype corresponding to Field
+    uint32_t localCrc = GridChecksum::crc32(vec_v.cpu_ptr, size);
+    uint32_t globalCrc = localCrc;
+    #ifdef GRID_COMMS_MPI
+        MPI_Allreduce(&localCrc, &globalCrc, 1, MPI_UINT32_T, MPI_BXOR, MPI_COMM_WORLD);
+    #endif
+    uint64_t dataOffset = 0x20;
+    uint64_t dataSize = static_cast<uint64_t>(size);
+
+    file.write(reinterpret_cast<char *>(&magic),      sizeof(uint32_t));
+    file.write(reinterpret_cast<char *>(&datatype),   sizeof(uint32_t));
+    file.write(reinterpret_cast<char *>(&localCrc),   sizeof(uint32_t));
+    file.write(reinterpret_cast<char *>(&globalCrc),  sizeof(uint32_t));
+    file.write(reinterpret_cast<char *>(&dataOffset), sizeof(uint64_t));
+    file.write(reinterpret_cast<char *>(&dataSize),   sizeof(uint64_t));
+    crcWatch.Stop();
+
+    if (!file)
+    {
+        file.close();
+        HADRONS_ERROR(Definition, "Failed to write checkpoint header: " + filename);
+    }
+
+    LOG(Message) << "SaveCheckpoint: magic "             << std::hex << magic      << std::dec << std::endl;
+    LOG(Message) << "SaveCheckpoint: datatype "          << std::hex << datatype   << std::dec << std::endl;
+    LOG(Message) << "SaveCheckpoint: Loacal Data CRC32 " << std::hex << localCrc   << std::dec << std::endl;
+    LOG(Message) << "SaveCheckpoint: Global Data CRC32 " << std::hex << globalCrc  << std::dec << std::endl;
+    LOG(Message) << "SaveCheckpoint: dataOffset "        << std::hex << dataOffset << std::dec << std::endl;
+    LOG(Message) << "SaveCheckpoint: dataSize "          << std::hex << dataSize   << std::dec << std::endl;
+
+    // Write payload
     ioWatch.Start();
     file.write(reinterpret_cast<char *>(vec_v.cpu_ptr), sizec);
     file.flush();
     ioWatch.Stop();
+
     if (!file)
     {
+        file.close();
         HADRONS_ERROR(Definition, "Failed to write lattice data in checkpoint: " + filename);
     }
     file.close();

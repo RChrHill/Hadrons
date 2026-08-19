@@ -4,7 +4,7 @@
  * Copyright (C) 2015 - 2023
  *
  * Author: Antonin Portelli <antonin.portelli@me.com>
- * Author: Michael Marshall <43034299+mmphys@users.noreply.github.com>
+ * Author: Muhammad Asif <19404936+asifsamiarain@users.noreply.github.com>
  *
  * Hadrons is free software: you can redistribute it and/or modify
  * it under the terms of the GNU General Public License as published by
@@ -113,8 +113,7 @@ void TLoadCheckpoint<Field>::execute(void)
     auto grid = env().getGrid();
     const std::string rankStr = std::to_string(grid->ThisRank());
     const std::string filename = resultFilename(par().fileStem + "." + rankStr, "bin");
-    size_t size, sizec;
-    uint32_t crcRead, crcData;
+    size_t size;
     GridStopWatch ioWatch, crcWatch;
 
     // Open checkpoint
@@ -126,47 +125,69 @@ void TLoadCheckpoint<Field>::execute(void)
 
     // Local lattice data size
     size = grid->lSites()*sizeof(typename Field::scalar_object);
-    sizec = size/sizeof(char);
+
+    // Read header
+    crcWatch.Start();
+    uint32_t magic,      expMagic = 'CKPT';
+    uint32_t datatype,   expDatatype = 0;
+    uint32_t localCrc,   expLocalCrc;
+    uint32_t globalCrc,  expGlobalCrc;
+    uint64_t dataOffset, expDataOffset = 0x20;
+    uint64_t dataSize,   expDataSize = static_cast<uint64_t>(size);
+
+    file.read(reinterpret_cast<char *>(&magic),      sizeof(uint32_t));
+    file.read(reinterpret_cast<char *>(&datatype),   sizeof(uint32_t));
+    file.read(reinterpret_cast<char *>(&localCrc),   sizeof(uint32_t));
+    file.read(reinterpret_cast<char *>(&globalCrc),  sizeof(uint32_t));
+    file.read(reinterpret_cast<char *>(&dataOffset), sizeof(uint64_t));
+    file.read(reinterpret_cast<char *>(&dataSize),   sizeof(uint64_t));
+    crcWatch.Stop();
+
+    if (!file)
+    {
+        file.close();
+        HADRONS_ERROR(Definition, "Failed to Read checkpoint header: " + filename);
+    }
+
+    LOG(Message) << "LoadCheckpoint: magic "             << std::hex << magic      << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: datatype "          << std::hex << datatype   << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: Loacal Data CRC32 " << std::hex << localCrc   << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: Global Data CRC32 " << std::hex << globalCrc  << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: dataOffset "        << std::hex << dataOffset << std::dec << std::endl;
+    LOG(Message) << "LoadCheckpoint: dataSize "          << std::hex << dataSize   << std::dec << std::endl;
 
     // Allocate field in Hadrons Environment
     auto &vec = envGet(Field, par().name);
 
     // Read lattice data
-    crcWatch.Start();
-    file.read(reinterpret_cast<char *>(&crcRead), sizeof(uint32_t)/sizeof(char));
-    if (!file)
-    {
-        HADRONS_ERROR(Definition, "Failed to read CRC from checkpoint: " + filename);
-    }
-    crcWatch.Stop();
-
     {
         autoView(vec_v, vec, CpuWrite);
         ioWatch.Start();
-        file.read(reinterpret_cast<char *>(vec_v.cpu_ptr), sizec);
+        file.read(reinterpret_cast<char *>(vec_v.cpu_ptr), static_cast<std::streamsize>(dataSize));
         if (!file)
         {
+            file.close();
             HADRONS_ERROR(Definition, "Failed to read lattice data from checkpoint: " + filename);
         }
         ioWatch.Stop();
     }
     file.close();
-
-    // Calculate CRC
     {
         autoView(vec_v, vec, CpuRead);
-        crcWatch.Start();
-        crcData = GridChecksum::crc32(vec_v.cpu_ptr, size);
-        crcWatch.Stop();
+        expLocalCrc = GridChecksum::crc32(vec_v.cpu_ptr, size);
     }
-    
-    // Validate CRC
-    LOG(Message) << "LoadCheckpoint: stored CRC32 " << std::hex << crcRead << std::dec << std::endl;
-    LOG(Message) << "LoadCheckpoint: calculated CRC32 " << std::hex << crcData << std::dec << std::endl;
-    if (crcRead != crcData)
-    {
-        HADRONS_ERROR(Definition, "Checkpoint CRC32 mismatch for " + filename);
-    }
+    expGlobalCrc = expLocalCrc;
+    #ifdef GRID_COMMS_MPI
+        MPI_Allreduce(&expLocalCrc, &expGlobalCrc, 1, MPI_UINT32_T, MPI_BXOR, MPI_COMM_WORLD);
+    #endif
+
+    // Validate header
+    if (magic != expMagic)           { HADRONS_ERROR(Definition, "Invalid checkpoint magic");      }
+    if (datatype != expDatatype)     { HADRONS_ERROR(Definition, "Invalid checkpoint datatype");   }
+    if (localCrc != expLocalCrc)     { HADRONS_ERROR(Definition, "Invalid checkpoint localCrc");   }
+    if (globalCrc != expGlobalCrc)   { HADRONS_ERROR(Definition, "Invalid checkpoint globalCrc");  }
+    if (dataOffset != expDataOffset) { HADRONS_ERROR(Definition, "Invalid checkpoint dataoffset"); }
+    if (dataSize != expDataSize)     { HADRONS_ERROR(Definition, "Invalid checkpoint datasize");   }
 
     // Performance
     size *= grid->ProcessorCount();
